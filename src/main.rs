@@ -1,71 +1,50 @@
-use anyhow::Result;
-use hyper::service::{make_service_fn, service_fn};
-use hyper::{Body, Method, Request, Response, Server, StatusCode};
-use std::convert::Infallible;
-use std::net::SocketAddr;
-use std::str::FromStr;
-use tower::make::Shared;
-
+use http::{Request, Response};
+use hyper::{server::conn::Http, service::service_fn, Body};
 use std::time::Duration;
+use std::time::{SystemTime, UNIX_EPOCH};
+use std::{convert::Infallible, net::SocketAddr};
+use tokio::net::TcpListener;
 
-fn main() {
-    let rt = tokio::runtime::Runtime::new().unwrap();
+///
+/// How to test
+/// run 2 terminals:
+/// terminal-1: cargo run
+/// terminal-2: for i in {0..10}; do curl http://127.0.0.1:8080/ & done
+/// See that http_response starts immediately for each connection without sleeping 5 seconds.
+///
+/// $ cargo run
+/// start http handling 1668004667.467865888s
+/// start http handling 1668004667.467865888s
+/// start http handling 1668004667.467865888s
+/// start http handling 1668004667.467867354s
+/// start http handling 1668004667.467936009s
+/// start http handling 1668004667.467867354s
+/// start http handling 1668004667.46789599s
 
-    match rt.block_on(app()) {
-        Ok(_) => println!("done"),
-        Err(e) => println!("err:{:?}", e),
-    };
-}
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let addr: SocketAddr = ([127, 0, 0, 1], 8080).into();
 
-async fn app() -> Result<()> {
-    /*let service = make_service_fn(move |_| async {
-        Ok::<_, hyper::Error>(service_fn(move |req| response(req)))
-    });*/
-    let make_service = Shared::new(service_fn(response));
-
-    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
-    //let server = Server::bind(&addr);
-
+    let tcp_listener = TcpListener::bind(addr).await?;
     loop {
-        let server = Server::bind(&addr).serve(make_service.clone());
-        //let per_serv = server.clone().serve(service);
-        tokio::spawn(async move {
-            if let Err(e) = server.await {
-                eprintln!("server error: {:?}", e);
+        let (tcp_stream, _) = tcp_listener.accept().await?;
+        tokio::task::spawn(async move {
+            if let Err(http_err) = Http::new()
+                .serve_connection(tcp_stream, service_fn(http_response))
+                .await
+            {
+                eprintln!("Error while serving HTTP connection: {}", http_err);
             }
         });
     }
 }
 
-pub async fn response(req: Request<Body>) -> Result<Response<Body>> {
-    match (req.method(), req.uri().path()) {
-        (&Method::GET, "/") => Ok(Response::new(Body::from("hello"))),
-        // Return the 404 Not Found for other routes.
-        _ => {
-            let mut not_found = Response::default();
-            *not_found.status_mut() = StatusCode::NOT_FOUND;
-            Ok(not_found)
-        }
-    }
-}
-
-async fn sleepy(Seconds(seconds): Seconds) -> Result<impl warp::Reply, Infallible> {
-    tokio::time::sleep(Duration::from_secs(seconds)).await;
-    Ok(format!("I waited {} seconds!", seconds))
-}
-
-/// A newtype to enforce our maximum allowed seconds.
-struct Seconds(u64);
-
-impl FromStr for Seconds {
-    type Err = ();
-    fn from_str(src: &str) -> Result<Self, Self::Err> {
-        src.parse::<u64>().map_err(|_| ()).and_then(|num| {
-            if num <= 500 {
-                Ok(Seconds(num))
-            } else {
-                Err(())
-            }
-        })
-    }
+async fn http_response(_req: Request<Body>) -> Result<Response<Body>, Infallible> {
+    let start = SystemTime::now();
+    let since_the_epoch = start
+        .duration_since(UNIX_EPOCH)
+        .expect("Time went backwards");
+    println!("start http handling {:?}", since_the_epoch);
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    Ok(Response::new(Body::from("Hello World!\n")))
 }
