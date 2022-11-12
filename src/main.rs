@@ -1,6 +1,7 @@
 use http::{Request, Response};
 use hyper::{server::conn::Http, service::service_fn, Body};
-use std::time::Duration;
+use hyper::{Method, StatusCode};
+use std::str;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{convert::Infallible, net::SocketAddr};
 use tokio::net::TcpListener;
@@ -20,6 +21,12 @@ use tokio::net::TcpListener;
 /// start http handling 1668004667.467936009s
 /// start http handling 1668004667.467867354s
 /// start http handling 1668004667.46789599s
+///
+/// COMMAND: POST
+/// curl -d '{"key1":"value1", "key2":"value2"}' -H "Content-Type: application/json" -X POST http://localhost:8080/data
+///
+/// COMMAND: GET
+/// curl -X GET http://localhost:8080/data
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -39,12 +46,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
 }
 
-async fn http_response(_req: Request<Body>) -> Result<Response<Body>, Infallible> {
+async fn http_response(req: Request<Body>) -> Result<Response<Body>, Infallible> {
     let start = SystemTime::now();
     let since_the_epoch = start
         .duration_since(UNIX_EPOCH)
         .expect("Time went backwards");
-    println!("start http handling {:?}", since_the_epoch);
-    tokio::time::sleep(Duration::from_secs(5)).await;
-    Ok(Response::new(Body::from("Hello World!\n")))
+    println!("start http handling {:?}: {:?}", since_the_epoch, &req);
+
+    let mut response = Response::new(Body::empty());
+
+    match req.method() {
+        &Method::GET => {
+            let uri = req.uri();
+            println!("uri={}", uri);
+            *response.body_mut() = Body::from("Hello World!\n");
+        }
+        &Method::PUT => *response.body_mut() = Body::from("put!"),
+        &Method::POST => {
+            let uri = req.uri();
+            println!("uri={}", uri);
+            if let Ok(contents) = hyper::body::to_bytes(req.into_body()).await {
+                let c = str::from_utf8(&contents).unwrap();
+                println!("contents={}", c);
+            } else {
+                println!("parse error from json contents");
+            }
+
+            *response.status_mut() = StatusCode::ACCEPTED;
+        }
+        &Method::DELETE => *response.body_mut() = Body::from("delete!"),
+        _ => *response.status_mut() = StatusCode::NOT_IMPLEMENTED,
+    }
+
+    Ok(response)
 }
