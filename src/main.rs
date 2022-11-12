@@ -1,11 +1,11 @@
+use anyhow::Result;
 use http::{Request, Response};
 use hyper::{server::conn::Http, service::service_fn, Body};
 use hyper::{Method, StatusCode};
 use std::fs::File;
 use std::io::prelude::*;
-use std::str;
+use std::net::SocketAddr;
 use std::time::{SystemTime, UNIX_EPOCH};
-use std::{convert::Infallible, net::SocketAddr};
 use tokio::net::TcpListener;
 
 ///
@@ -48,7 +48,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
 }
 
-async fn http_response(req: Request<Body>) -> Result<Response<Body>, Infallible> {
+async fn http_response(req: Request<Body>) -> Result<Response<Body>> {
     let start = SystemTime::now();
     let since_the_epoch = start
         .duration_since(UNIX_EPOCH)
@@ -67,8 +67,8 @@ async fn http_response(req: Request<Body>) -> Result<Response<Body>, Infallible>
         &Method::POST => {
             let uri = req.uri().to_string();
             if let Ok(contents) = hyper::body::to_bytes(req.into_body()).await {
-                let mut file = File::create(&uri[1..]).unwrap();
-                file.write_all(&contents).unwrap();
+                let mut file = File::create(&uri[1..])?;
+                file.write_all(&contents)?;
                 *response.status_mut() = StatusCode::ACCEPTED;
             } else {
                 *response.body_mut() = Body::from("Internal error when parsing the contents\n");
