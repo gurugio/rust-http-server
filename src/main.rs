@@ -2,6 +2,7 @@ use anyhow::Result;
 use http::{Request, Response};
 use hyper::{server::conn::Http, service::service_fn, Body};
 use hyper::{Method, StatusCode};
+use std::fs;
 use std::fs::File;
 use std::io::prelude::*;
 use std::net::SocketAddr;
@@ -58,24 +59,10 @@ async fn http_response(req: Request<Body>) -> Result<Response<Body>> {
     let mut response = Response::new(Body::empty());
 
     match req.method() {
-        &Method::GET => {
-            let uri = req.uri();
-            println!("uri={}", uri);
-            *response.body_mut() = Body::from("Hello World!\n");
-        }
-        &Method::PUT => *response.body_mut() = Body::from("put!"),
-        &Method::POST => {
-            let uri = req.uri().to_string();
-            if let Ok(contents) = hyper::body::to_bytes(req.into_body()).await {
-                let mut file = File::create(&uri[1..])?;
-                file.write_all(&contents)?;
-                *response.status_mut() = StatusCode::ACCEPTED;
-            } else {
-                *response.body_mut() = Body::from("Internal error when parsing the contents\n");
-                *response.status_mut() = StatusCode::NOT_ACCEPTABLE;
-            }
-        }
-        &Method::DELETE => *response.body_mut() = Body::from("delete!"),
+        &Method::GET => response_get(req, &mut response).await?,
+        &Method::PUT => response_put(req, &mut response).await?,
+        &Method::POST => response_post(req, &mut response).await?,
+        &Method::DELETE => response_delete(req, &mut response).await?,
         _ => {
             *response.body_mut() = Body::from("Unidentified request-method");
             *response.status_mut() = StatusCode::NOT_IMPLEMENTED;
@@ -83,4 +70,46 @@ async fn http_response(req: Request<Body>) -> Result<Response<Body>> {
     }
 
     Ok(response)
+}
+
+async fn response_delete(req: Request<Body>, response: &mut Response<Body>) -> Result<()> {
+    let uri = req.uri().to_string();
+    let _ = fs::remove_file(&uri[1..]);
+    *response.status_mut() = StatusCode::ACCEPTED;
+    Ok(())
+}
+
+async fn response_post(req: Request<Body>, response: &mut Response<Body>) -> Result<()> {
+    let uri = req.uri().to_string();
+    let contents = hyper::body::to_bytes(req.into_body()).await?;
+    let mut file = File::create(&uri[1..])?;
+
+    file.write_all(&contents)?;
+    *response.status_mut() = StatusCode::ACCEPTED;
+    Ok(())
+}
+
+async fn response_put(req: Request<Body>, response: &mut Response<Body>) -> Result<()> {
+    let uri = req.uri().to_string();
+    let contents = hyper::body::to_bytes(req.into_body()).await?;
+    // open file with write permission
+    let mut file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&uri[1..])?;
+    // over-write data
+    file.write_all(&contents)?;
+    *response.status_mut() = StatusCode::ACCEPTED;
+    Ok(())
+}
+
+async fn response_get(req: Request<Body>, response: &mut Response<Body>) -> Result<()> {
+    let uri = req.uri().to_string();
+    let mut fs = File::open(&uri[1..])?;
+    let mut contents = String::new();
+
+    fs.read_to_string(&mut contents)?;
+    *response.body_mut() = Body::from(contents);
+    *response.status_mut() = StatusCode::ACCEPTED;
+    Ok(())
 }
