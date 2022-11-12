@@ -113,3 +113,116 @@ async fn response_get(req: Request<Body>, response: &mut Response<Body>) -> Resu
     *response.status_mut() = StatusCode::ACCEPTED;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_post() {
+        let post_uri = "/post-data";
+        let post_path = &post_uri[1..];
+        let req = Request::builder()
+            .header("host", "localhost:8080")
+            .method("POST")
+            .uri(post_uri)
+            .body(hyper::Body::from("hello"))
+            .unwrap();
+        let mut response = Response::new(Body::empty());
+
+        response_post(req, &mut response).await.unwrap();
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+        let mut fs = File::open(post_path).unwrap();
+        let mut contents = String::new();
+
+        fs.read_to_string(&mut contents).unwrap();
+        assert_eq!(contents, "hello");
+
+        // cleanup!!
+        let _ = fs::remove_file(post_path);
+    }
+
+    #[tokio::test]
+    async fn test_delete() {
+        let delete_uri = "/delete-data";
+        let delete_path = &delete_uri[1..];
+        {
+            let mut file = File::create(delete_path).unwrap();
+            file.write_all(b"hello").unwrap();
+        }
+
+        let req = Request::builder()
+            .header("host", "localhost:8080")
+            .method("DELETE")
+            .uri(delete_uri)
+            .body(hyper::Body::from("hello"))
+            .unwrap();
+        let mut response = Response::new(Body::empty());
+
+        response_delete(req, &mut response).await.unwrap();
+        assert!(File::open(delete_path).is_err());
+
+        // cleanup!!
+        let _ = fs::remove_file(delete_path);
+    }
+
+    #[tokio::test]
+    async fn test_get() {
+        let get_uri = "/get-data";
+        let get_path = &get_uri[1..];
+        {
+            let mut file = File::create(get_path).unwrap();
+            file.write_all(b"hello").unwrap();
+        }
+
+        let req: Request<Body> = Request::builder()
+            .header("host", "localhost:8080")
+            .method("GET")
+            .uri(get_uri)
+            .body(hyper::Body::empty())
+            .unwrap();
+        let mut response = Response::new(Body::empty());
+
+        response_get(req, &mut response).await.unwrap();
+
+        // How to convert hyper::Body to String
+        // https://stackoverflow.com/questions/63301838/how-to-read-the-response-body-as-a-string-in-rust-hyper
+        let bytes = hyper::body::to_bytes(response.into_body()).await.unwrap();
+        assert_eq!(
+            String::from_utf8(bytes.to_vec()).unwrap(),
+            "hello".to_string()
+        );
+
+        let _ = fs::remove_file(get_path);
+    }
+
+    #[tokio::test]
+    async fn test_put() {
+        let put_uri = "/put-data";
+        let put_path = &put_uri[1..];
+        {
+            let mut file = File::create(put_path).unwrap();
+            file.write_all(b"hello").unwrap();
+        }
+
+        let req: Request<Body> = Request::builder()
+            .header("host", "localhost:8080")
+            .method("PUT")
+            .uri(put_uri)
+            .body(hyper::Body::from("xxx"))
+            .unwrap();
+        let mut response = Response::new(Body::empty());
+
+        response_put(req, &mut response).await.unwrap();
+
+        let mut fs = File::open(put_path).unwrap();
+        let mut contents = String::new();
+
+        fs.read_to_string(&mut contents).unwrap();
+        assert_eq!(contents, "xxxlo");
+
+        // cleanup!!
+        let _ = fs::remove_file(put_path);
+    }
+}
