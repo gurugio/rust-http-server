@@ -1,6 +1,8 @@
 use http::{Request, Response};
 use hyper::{server::conn::Http, service::service_fn, Body};
 use hyper::{Method, StatusCode};
+use std::fs::File;
+use std::io::prelude::*;
 use std::str;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{convert::Infallible, net::SocketAddr};
@@ -63,19 +65,21 @@ async fn http_response(req: Request<Body>) -> Result<Response<Body>, Infallible>
         }
         &Method::PUT => *response.body_mut() = Body::from("put!"),
         &Method::POST => {
-            let uri = req.uri();
-            println!("uri={}", uri);
+            let uri = req.uri().to_string();
             if let Ok(contents) = hyper::body::to_bytes(req.into_body()).await {
-                let c = str::from_utf8(&contents).unwrap();
-                println!("contents={}", c);
+                let mut file = File::create(&uri[1..]).unwrap();
+                file.write_all(&contents).unwrap();
+                *response.status_mut() = StatusCode::ACCEPTED;
             } else {
-                println!("parse error from json contents");
+                *response.body_mut() = Body::from("Internal error when parsing the contents\n");
+                *response.status_mut() = StatusCode::NOT_ACCEPTABLE;
             }
-
-            *response.status_mut() = StatusCode::ACCEPTED;
         }
         &Method::DELETE => *response.body_mut() = Body::from("delete!"),
-        _ => *response.status_mut() = StatusCode::NOT_IMPLEMENTED,
+        _ => {
+            *response.body_mut() = Body::from("Unidentified request-method");
+            *response.status_mut() = StatusCode::NOT_IMPLEMENTED;
+        }
     }
 
     Ok(response)
